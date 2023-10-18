@@ -8,12 +8,13 @@ const app = new express();
 // Configure middleware ---------------------------
 
 // Controllers ------------------------------------
-const projectsController = async (req, res) => {
+const usersController = async (req, res) => {
+    const id = req.params.id;
     const table = "users";
     const fields = ["projects.projectID, projects.projectName, projects.projectDescription"];
     const extendedFields = `${fields}, CONCAT(users.firstName, " ", users.lastName) AS fullName`;
     const extendedTable = `${table} \nLEFT JOIN members ON users.userID = members.userID \nINNER JOIN projects ON members.projectID = projects.projectID`;
-    const sql = `SELECT ${extendedFields} FROM ${extendedTable} WHERE users.userID = 4`;
+    const sql = `SELECT ${extendedFields} FROM ${extendedTable} WHERE users.userID = ${id}`;
     // Execute query
     let isSuccess = false;
     let message = "";
@@ -37,7 +38,7 @@ const projectsController = async (req, res) => {
 }
 
 // Endpoints --------------------------------------
-app.get("/api/projects", projectsController);
+app.get("/api/users/:id", usersController);
 
 // Start server -----------------------------------
 const PORT = process.env.PORT || 5000;
