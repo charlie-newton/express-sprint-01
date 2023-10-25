@@ -1,6 +1,7 @@
 // Imports ----------------------------------------
 import express from "express";
 import database from "./database.js";
+import cors from "cors";
 
 // Configure express app --------------------------
 const app = new express();
