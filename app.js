@@ -18,42 +18,88 @@ app.use(function (req, res, next) {
   
   });
   
-   
-  
   app.use(cors({ origin: '*' }));
 
+  app.use(express.json());
+  app.use(express.urlencoded({extended:true}));
+
 // Controllers ------------------------------------
-const projectsController = async (req, res) => {
-    const id = req.params.id;
-    const table = "members";
-    const fields = ["projects.projectID, projects.projectName, projects.projectDescription"];
-    const extendedFields = `${fields}`;
-    const extendedTable = `${table} INNER JOIN projects ON members.projectID = projects.projectID`;
-    const sql = `SELECT ${extendedFields} FROM ${extendedTable} WHERE members.userID = ${id}`;
-    // Execute query
-    let isSuccess = false;
-    let message = "";
-    let result = null;
+const buildProjectsSelectSql = (id) => {
+    let table = `(members INNER JOIN projects ON members.projectID = projects.projectID)`;
+    let fields = ["projects.projectID, projects.projectName, projects.projectDescription"];
+    let sql = `SELECT ${fields} FROM ${table} WHERE members.userID = ${id}`;
+
+    return sql;
+}
+
+const buildProjectsInsertSql = (record) => {
+    let table = `projects`;
+    let mutableFields = ["projectName, projectDescription"];
+    return `INSERT INTO ${table} SET
+        projectName="${record['projectName']}",
+        projectDescription="${record['projectDescription']}"
+    `;
+}
+
+const buildMembersInsertSql = (userID, projectID) => {
+    let table = `members`;
+    let mutableFields = ["userID, projectID"];
+    return `INSERT INTO ${table} SET
+        userID="${userID}",
+        projectID="${projectID}"
+    `;
+}
+
+const getProjectsController = async (res, id) => {
+    const sql = buildProjectsSelectSql(id);
+    const { isSuccess, result, message: accessorMessage } = await read(sql);
+    if(!isSuccess) return res.status(400).json({ message: accessorMessage });
+
+    res.status(200).json(result);
+}
+
+const postProjectsController = async (req, res, id) => {
+    const sql = buildProjectsInsertSql(req.body);
+    const { isSuccess, result, message: accessorMessage } = await create(sql);
+    if(!isSuccess) return res.status(404).json({ message: accessorMessage });
+
+    res.status(201).json(result);
+}
+
+const read = async (sql) => {
     try {
-        [result] = await database.query(sql);
-        if(result.length === 0) {
-            message = "No record(s) found";
-        }
-        else {
-            isSuccess = true;
-            message = "Record(s) successfuly recovered";
-        }
-    } catch (error) {
-        message = `Failed to execute query: ${error.message}`;
+        const [result] = await database.query(sql);
+        return (result.length === 0)
+            ? { isSuccess: false, result: null, message: "No record(s) found" }
+            : { isSuccess: true, result: result, message: "Record(s) successfuly recovered" }
+    } 
+    catch (error) {
+        return { isSuccess: false, result: null, message: `Failed to execute query: ${error.message}` }
     }
-    // Responses
-    isSuccess
-        ? res.status(200).json(result)
-        : res.status(400).json({message: message});
+}
+
+const create = async (sql) => {
+    try {
+        const status = await database.query(sql);
+
+        const recoverRecordSql = buildProjectsSelectSql(status[0].insertId);
+
+        const { isSuccess, result, message } = await read(recoverRecordSql);
+
+        return isSuccess
+            ? { isSuccess: true, result: result, message: "Record successfuly recovered" }
+            : { isSuccess: false, result: null, message: `Failed to recover the inserted record: ${message}` }
+    } 
+    catch (error) {
+        return { isSuccess: false, result: null, message: `Failed to execute query: ${error.message}` }
+    }
 }
 
 // Endpoints --------------------------------------
-app.get("/api/projects/users/:id", projectsController);
+app.get("/api/projects", (req, res) => getProjectsController(res, null));
+app.get("/api/projects/users/:id", (req, res) => getProjectsController(res, req.params.id));
+
+app.post("/api/projects", postProjectsController);
 
 // Start server -----------------------------------
 const PORT = process.env.PORT || 5000;
