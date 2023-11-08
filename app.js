@@ -26,9 +26,9 @@ app.use(function (req, res, next) {
 // Controllers ------------------------------------
 
 // Functions ---------------------
-const getProjectsController = async (res, id) => {
-    const sql = buildUsersProjectsSelectSql(id);
-    const { isSuccess, result, message: accessorMessage } = await read(sql);
+const getProjectsController = async (req, res) => {
+    const sql = buildUsersProjectsSelectSql(req.params.id);
+    const { isSuccess, result, message: accessorMessage } = await readProjects(sql);
     if(!isSuccess) return res.status(400).json({ message: accessorMessage });
 
     res.status(200).json(result);
@@ -36,18 +36,29 @@ const getProjectsController = async (res, id) => {
 
 const postProjectsController = async (req, res) => {
     const sql = buildProjectsInsertSql(req.body);
-    const { isSuccess, result, message: accessorMessage } = await createProjects(sql, req.body);
+    const { isSuccess, result, message: accessorMessage, id } = await createProjects(sql, req.body);
     if(!isSuccess) return res.status(404).json({ message: accessorMessage });
+
+    const member = {
+        "userID": req.params.id,
+        "projectID": id
+    }
+    const memberSql = buildMembersInsertSql(member);
+    const { memberIsSuccess, memberResult, memberMessage: memberAccessorMessage } = await createMembers(memberSql, member);
+    if(!memberIsSuccess) return res.status(404).json({ memberMessage: memberAccessorMessage });
 
     res.status(201).json(result);
-
 }
 
-const postMembersController = async (req, res) => {
-    const sql = buildMembersInsertSql(req.body);
-    const { isSuccess, result, message: accessorMessage } = await createMembers(sql, req.body);
+const postMembersController = async (req, res, userID, projectID) => {
+    const data = {
+        "userID": userID,
+        "projectID": projectID
+    }
+    const sql = buildMembersInsertSql(userID, projectID);
+    const { isSuccess, result, message: accessorMessage } = await createMembers(sql, data);
     if(!isSuccess) return res.status(404).json({ message: accessorMessage });
-
+    
     res.status(201).json(result);
 }
 
@@ -64,7 +75,7 @@ const buildProjectsSelectSql = (id) => {
 }
 
 const buildUsersProjectsSelectSql = (id) => {
-    let table = `(members INNER JOIN projects ON members.projectID = projects.projectID)`;
+    let table = `members INNER JOIN projects ON members.projectID = projects.projectID`;
     let fields = ["projects.projectID, projects.projectName, projects.projectDescription"];
     let sql = `SELECT ${fields} FROM ${table} WHERE members.userID = ${id}`;
 
@@ -85,7 +96,7 @@ const buildProjectsInsertSql = (record) => {
     return `INSERT INTO ${table} ` + buildSetFields(mutableFields);
 }
 
-const buildMembersInsertSql = (userID, projectID) => {
+const buildMembersInsertSql = (record) => {
     let table = `members`;
     let mutableFields = ['userID', 'projectID'];
     return `INSERT INTO ${table} ` + buildSetFields(mutableFields);
@@ -99,14 +110,14 @@ const createProjects = async (sql, record) => {
 
         const recoverRecordSql = buildProjectsSelectSql(status[0].insertId);
 
-        const { isSuccess, result, message } = await read(recoverRecordSql);
+        const { isSuccess, result, message, id } = await readProjects(recoverRecordSql);
 
         return isSuccess
-            ? { isSuccess: true, result: result, message: "Record successfuly recovered" }
-            : { isSuccess: false, result: null, message: `Failed to recover the inserted record: ${message}` }
+            ? { isSuccess: true, result: result, message: "Record successfuly recovered", id: status[0].insertId }
+            : { isSuccess: false, result: null, message: `Failed to recover the inserted record: ${message}`, id: null }
     } 
     catch (error) {
-        return { isSuccess: false, result: null, message: `Failed to execute query: ${error.message}` }
+        return { isSuccess: false, result: null, message: `Failed to execute query: ${error.message}`, id: null }
     }
 }
 
@@ -115,19 +126,19 @@ const createMembers = async (sql, record) => {
         const status = await database.query(sql, record);
 
         const recoverRecordSql = buildMembersSelectSql(status[0].insertId);
+        
+        const { memberIsSuccess, memberResult, memberMessage } = await readMembers(recoverRecordSql);
 
-        const { isSuccess, result, message } = await read(recoverRecordSql);
-
-        return isSuccess
-            ? { isSuccess: true, result: result, message: "Record successfuly recovered" }
-            : { isSuccess: false, result: null, message: `Failed to recover the inserted record: ${message}` }
+        return memberIsSuccess
+            ? { memberIsSuccess: true, memberResult: memberResult, memberMessage: "Record successfuly recovered" }
+            : { memberIsSuccess: false, memberResult: null, memberMessage: `Failed to recover the inserted record: ${memberMessage}` }
     } 
     catch (error) {
-        return { isSuccess: false, result: null, message: `Failed to execute query: ${error.message}` }
+        return { memberIsSuccess: false, memberResult: null, memberMessage: `Failed to execute query: ${error.message}` }
     }
 }
 
-const read = async (sql) => {
+const readProjects = async (sql) => {
     try {
         const [result] = await database.query(sql);
         return (result.length === 0)
@@ -139,11 +150,23 @@ const read = async (sql) => {
     }
 }
 
+const readMembers = async (sql) => {
+    try {
+        const [memberResult] = await database.query(sql);
+        return (memberResult.length === 0)
+            ? { memberIsSuccess: false, memberResult: null, memberMessage: "No record(s) found" }
+            : { memberIsSuccess: true, memberResult: memberResult, memberMessage: "Record(s) successfuly recovered" }
+    } 
+    catch (error) {
+        return { memberIsSuccess: false, memberResult: null, memberMessage: `Failed to execute query: ${error.message}` }
+    }
+}
+
 // Endpoints --------------------------------------
 app.get("/api/projects", (req, res) => getProjectsController(res, null));
-app.get("/api/projects/users/:id", (req, res) => getProjectsController(res));
+app.get("/api/projects/users/:id", getProjectsController);
 
-app.post("/api/projects", postProjectsController);
+app.post("/api/projects/users/:id", postProjectsController);
 
 // Start server -----------------------------------
 const PORT = process.env.PORT || 5000;
