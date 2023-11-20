@@ -7,7 +7,6 @@ import cors from "cors";
 const app = new express();
 
 // Configure middleware --------------------------
-
 app.use(function (req, res, next) {
 
     res.header("Access-Control-Allow-Origin", "*");
@@ -24,42 +23,28 @@ app.use(function (req, res, next) {
   app.use(express.urlencoded({extended:true}));
 
 // Controllers ------------------------------------
-
-// Functions ---------------------
 const getProjectsController = async (req, res) => {
     const sql = buildUsersProjectsSelectSql(req.params.id);
-    const { isSuccess, result, message: accessorMessage } = await readProjects(sql);
-    if(!isSuccess) return res.status(400).json({ message: accessorMessage });
+    const { isSuccess: projectSuccess, result: projectResult, message: projectAccessorMessage } = await read(sql);
+    if(!projectSuccess) return res.status(400).json({ message: projectAccessorMessage });
 
-    res.status(200).json(result);
+    res.status(200).json(projectResult);
 }
 
 const postProjectsController = async (req, res) => {
-    const sql = buildProjectsInsertSql(req.body);
-    const { isSuccess, result, message: accessorMessage, id } = await createProjects(sql, req.body);
-    if(!isSuccess) return res.status(404).json({ message: accessorMessage });
+    const projectSql = buildProjectsInsertSql(req.body);
+    const { isSuccess: projectSuccess, result: projectResult, message: projectAccessorMessage } = await create(projectSql, req.body, buildProjectsSelectSql);
+    if(!projectSuccess) return res.status(404).json({ message: projectAccessorMessage });
 
     const member = {
         "userID": req.params.id,
-        "projectID": id
+        "projectID": projectResult[0].projectID
     }
     const memberSql = buildMembersInsertSql(member);
-    const { memberIsSuccess, memberResult, memberMessage: memberAccessorMessage } = await createMembers(memberSql, member);
-    if(!memberIsSuccess) return res.status(404).json({ memberMessage: memberAccessorMessage });
+    const { isSuccess: memberSuccess, result: memberResult, message: memberAccessorMessage } = await create(memberSql, member, buildMembersSelectSql);
+    if(!memberSuccess) return res.status(404).json({ message: memberAccessorMessage });
 
-    res.status(201).json(result);
-}
-
-const postMembersController = async (req, res, userID, projectID) => {
-    const data = {
-        "userID": userID,
-        "projectID": projectID
-    }
-    const sql = buildMembersInsertSql(userID, projectID);
-    const { isSuccess, result, message: accessorMessage } = await createMembers(sql, data);
-    if(!isSuccess) return res.status(404).json({ message: accessorMessage });
-    
-    res.status(201).json(result);
+    res.status(201).json(projectResult);
 }
 
 // Builders ----------------------
@@ -90,55 +75,37 @@ const buildMembersSelectSql = (id) => {
     return sql;
 }
 
-const buildProjectsInsertSql = (record) => {
+const buildProjectsInsertSql = () => {
     let table = `projects`;
     let mutableFields = ['projectName', 'projectDescription'];
     return `INSERT INTO ${table} ` + buildSetFields(mutableFields);
 }
 
-const buildMembersInsertSql = (record) => {
+const buildMembersInsertSql = () => {
     let table = `members`;
     let mutableFields = ['userID', 'projectID'];
     return `INSERT INTO ${table} ` + buildSetFields(mutableFields);
 }
 
 // CRUD --------------------------
-
-const createProjects = async (sql, record) => {
+const create = async (sql, record, readSql) => {
     try {
         const status = await database.query(sql, record);
 
-        const recoverRecordSql = buildProjectsSelectSql(status[0].insertId);
+        const recoverRecordSql = readSql(status[0].insertId);
 
-        const { isSuccess, result, message, id } = await readProjects(recoverRecordSql);
+        const { isSuccess, result, message, id } = await read(recoverRecordSql);
 
         return isSuccess
-            ? { isSuccess: true, result: result, message: "Record successfuly recovered", id: status[0].insertId }
-            : { isSuccess: false, result: null, message: `Failed to recover the inserted record: ${message}`, id: null }
+            ? { isSuccess: true, result: result, message: "Record successfuly recovered" }
+            : { isSuccess: false, result: null, message: `Failed to recover the inserted record: ${message}` }
     } 
     catch (error) {
-        return { isSuccess: false, result: null, message: `Failed to execute query: ${error.message}`, id: null }
+        return { isSuccess: false, result: null, message: `Failed to execute query: ${error.message}` }
     }
 }
 
-const createMembers = async (sql, record) => {
-    try {
-        const status = await database.query(sql, record);
-
-        const recoverRecordSql = buildMembersSelectSql(status[0].insertId);
-        
-        const { memberIsSuccess, memberResult, memberMessage } = await readMembers(recoverRecordSql);
-
-        return memberIsSuccess
-            ? { memberIsSuccess: true, memberResult: memberResult, memberMessage: "Record successfuly recovered" }
-            : { memberIsSuccess: false, memberResult: null, memberMessage: `Failed to recover the inserted record: ${memberMessage}` }
-    } 
-    catch (error) {
-        return { memberIsSuccess: false, memberResult: null, memberMessage: `Failed to execute query: ${error.message}` }
-    }
-}
-
-const readProjects = async (sql) => {
+const read = async (sql) => {
     try {
         const [result] = await database.query(sql);
         return (result.length === 0)
@@ -150,21 +117,9 @@ const readProjects = async (sql) => {
     }
 }
 
-const readMembers = async (sql) => {
-    try {
-        const [memberResult] = await database.query(sql);
-        return (memberResult.length === 0)
-            ? { memberIsSuccess: false, memberResult: null, memberMessage: "No record(s) found" }
-            : { memberIsSuccess: true, memberResult: memberResult, memberMessage: "Record(s) successfuly recovered" }
-    } 
-    catch (error) {
-        return { memberIsSuccess: false, memberResult: null, memberMessage: `Failed to execute query: ${error.message}` }
-    }
-}
-
 // Endpoints --------------------------------------
 app.get("/api/projects", (req, res) => getProjectsController(res, null));
-app.get("/api/projects/users/:id", getProjectsController);
+app.get("/api/projects/users/:id", (req, res) => getProjectsController(req, res));
 
 app.post("/api/projects/users/:id", postProjectsController);
 
