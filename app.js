@@ -53,7 +53,7 @@ const buildSetFields = (fields) => fields.reduce((setSql, field, index) =>
 
 const buildProjectsSelectSql = (id) => {
     let table = `projects`;
-    let fields = ["projects.projectID, projects.projectName, projects.projectDescription"];
+    let fields = ["projects.projectID, projects.projectName, projects.projectDescription, projects.projectImage, projects.projectDeadline"];
     let sql = `SELECT ${fields} FROM ${table} WHERE projects.projectID = ${id}`;
 
     return sql;
@@ -61,7 +61,7 @@ const buildProjectsSelectSql = (id) => {
 
 const buildUsersProjectsSelectSql = (id) => {
     let table = `members INNER JOIN projects ON members.projectID = projects.projectID`;
-    let fields = ["projects.projectID, projects.projectName, projects.projectDescription"];
+    let fields = ["projects.projectID, projects.projectName, projects.projectDescription, projects.projectImage, projects.projectDeadline"];
     let sql = `SELECT ${fields} FROM ${table} WHERE members.userID = ${id}`;
 
     return sql;
@@ -77,7 +77,7 @@ const buildMembersSelectSql = (id) => {
 
 const buildProjectsInsertSql = () => {
     let table = `projects`;
-    let mutableFields = ['projectName', 'projectDescription'];
+    let mutableFields = ['projectName', 'projectDescription', 'projectImage', 'projectDeadline'];
     return `INSERT INTO ${table} ` + buildSetFields(mutableFields);
 }
 
