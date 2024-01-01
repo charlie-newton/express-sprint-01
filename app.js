@@ -22,121 +22,20 @@ app.use(function (req, res, next) {
   app.use(express.json());
   app.use(express.urlencoded({extended:true}));
 
-// Controllers ------------------------------------
-const getProjectsController = async (req, res) => {
-    const sql = buildUsersProjectsSelectSql(req.params.id);
-    const { isSuccess: projectSuccess, result: projectResult, message: projectAccessorMessage } = await read(sql);
-    if(!projectSuccess) return res.status(400).json({ message: projectAccessorMessage });
+// ---------------------------------------------------------------------------------------------------------------------------------------------
 
-    res.status(200).json(projectResult);
-}
 
-const postProjectsController = async (req, res) => {
-    const projectSql = buildProjectsInsertSql(req.body);
-    const { isSuccess: projectSuccess, result: projectResult, message: projectAccessorMessage } = await create(projectSql, req.body, buildProjectsSelectSql);
-    if(!projectSuccess) return res.status(404).json({ message: projectAccessorMessage });
 
-    const member = {
-        "userID": req.params.id,
-        "projectID": projectResult[0].projectID
-    }
-    const memberSql = buildMembersInsertSql(member);
-    const { isSuccess: memberSuccess, result: memberResult, message: memberAccessorMessage } = await create(memberSql, member, buildMembersSelectSql);
-    if(!memberSuccess) return res.status(404).json({ message: memberAccessorMessage });
 
-    res.status(201).json(projectResult);
-}
 
-const putProjectsController = async (req, res) => {
-    const id = req.params.id;
-    const record = req.body;
-
-    const sql = buildProjectsUpdateSql();
-    const { isSuccess, result, message: accessorMessage } = await update(sql, id, record);
-    if(!isSuccess) return res.status(400).json({ message: accessorMessage });
-
-    res.status(200).json(result);
-}
-
-const deleteProjectsController = async (req, res) => {
-    const id = req.params.id;
-    const record = req.body;
-
-    const membersSql = buildMembersProjectsDeleteSql();
-    const { isSuccess: memberSuccess, result: memberResult, message: memberAccessorMessage } = await deleteEntry(membersSql, id);
-    if(!memberSuccess) return res.status(400).json({ message: memberAccessorMessage });
-
-    const sql = buildProjectsDeleteSql();
-    const { isSuccess, result, message: accessorMessage } = await deleteEntry(sql, id);
-    if(!isSuccess) return res.status(400).json({ message: accessorMessage });
-
-    res.status(200).json({ message: accessorMessage });
-}
-
-// Builders ----------------------
-const buildSetFields = (fields) => fields.reduce((setSql, field, index) =>
-    setSql + `${field}=:${field}` + ((index === fields.length - 1) ? '' : ', '), `SET ` );
-
-const buildProjectsSelectSql = (id) => {
-    let table = `projects`;
-    let fields = ["projectID, projectName, projectDescription, projectImage, projectDeadline"];
-    let sql = `SELECT ${fields} FROM ${table} WHERE projectID = ${id}`;
-
-    return sql;
-}
-
-const buildUsersProjectsSelectSql = (id) => {
-    let table = `members INNER JOIN projects ON members.projectID = projects.projectID`;
-    let fields = ["projects.projectID, projects.projectName, projects.projectDescription, projects.projectImage, projects.projectDeadline"];
-    let sql = `SELECT ${fields} FROM ${table} WHERE members.userID = ${id}`;
-
-    return sql;
-}
-
-const buildMembersSelectSql = (id) => {
-    let table = `members`;
-    let fields = ["memberID, userID, projectID"];
-    let sql = `SELECT ${fields} FROM ${table} WHERE memberID = ${id}`;
-
-    return sql;
-}
-
-const buildProjectsInsertSql = () => {
-    let table = `projects`;
-    let mutableFields = ['projectName', 'projectDescription', 'projectImage', 'projectDeadline'];
-    return `INSERT INTO ${table} ` + buildSetFields(mutableFields);
-}
-
-const buildMembersInsertSql = () => {
-    let table = `members`;
-    let mutableFields = ['userID', 'projectID'];
-    return `INSERT INTO ${table} ` + buildSetFields(mutableFields);
-}
-
-const buildProjectsUpdateSql = () => {
-    let table = `projects`;
-    let mutableFields = ['projectName', 'projectDescription', 'projectImage', 'projectDeadline'];
-    return `UPDATE ${table} ` + buildSetFields(mutableFields) + ` WHERE projectID=:projectID`;
-}
-
-const buildProjectsDeleteSql = () => {
-    let table = `projects`;
-    return `DELETE FROM ${table} WHERE projectID=:projectID`;
-}
-
-const buildMembersProjectsDeleteSql = () => {
-    let table = `members`;
-    return `DELETE FROM ${table} WHERE members.projectID=:projectID`;
-}
-
-// CRUD --------------------------
-const create = async (sql, record, readSql) => {
+// CRUD -------------------------------------------
+const createEntry = async (createQuery, readQuery) => {
     try {
-        const status = await database.query(sql, record);
+        const status = await database.query(createQuery.sql, createQuery.data);
 
-        const recoverRecordSql = readSql(status[0].insertId);
+        const recoverRecordQuery = readQuery(status[0].insertId);
 
-        const { isSuccess, result, message, id } = await read(recoverRecordSql);
+        const { isSuccess, result, message, id } = await readEntry(recoverRecordQuery);
 
         return isSuccess
             ? { isSuccess: true, result: result, message: "Record successfuly recovered" }
@@ -147,9 +46,9 @@ const create = async (sql, record, readSql) => {
     }
 }
 
-const read = async (sql) => {
+const readEntry = async (readQuery) => {
     try {
-        const [result] = await database.query(sql);
+        const [result] = await database.query(readQuery.sql, readQuery.data);
         return (result.length === 0)
             ? { isSuccess: false, result: null, message: "No record(s) found" }
             : { isSuccess: true, result: result, message: "Record(s) successfuly recovered" }
@@ -159,16 +58,16 @@ const read = async (sql) => {
     }
 }
 
-const update = async (sql, id, record) => {
+const updateEntry = async (updateQuery) => {
     try {
-        const status = await database.query(sql, { ...record, projectID: id } );
+        const status = await database.query(updateQuery.sql, updateQuery.data );
 
         if (status[0].affectedRows === 0)
             return { isSuccess: false, result: null, message: `Failed to update record: no rows affected` }
 
-        const recoverRecordSql = buildProjectsSelectSql(id);
+        const readQuery = buildProjectsReadQuery(updateQuery.data.projectID);
 
-        const { isSuccess, result, message } = await read(recoverRecordSql);
+        const { isSuccess, result, message } = await readEntry(readQuery);
 
         return isSuccess
             ? { isSuccess: true, result: result, message: "Record successfuly recovered" }
@@ -179,9 +78,9 @@ const update = async (sql, id, record) => {
     }
 }
 
-const deleteEntry = async (sql, id) => {
+const deleteEntry = async (deleteQuery) => {
     try {
-        const status = await database.query(sql, { projectID: id } );
+        const status = await database.query(deleteQuery.sql, deleteQuery.data);
 
         return status[0].affectedRows === 0
             ? { isSuccess: false, result: null, message: `Failed to delete record ${id}` }
@@ -190,6 +89,122 @@ const deleteEntry = async (sql, id) => {
     catch (error) {
         return { isSuccess: false, result: null, message: `Failed to execute query: ${error.message}` }
     }
+}
+
+
+// Controllers ------------------------------------
+const getProjectsController = async (req, res) => {
+    const id = req.params.id;
+    
+    const query = buildUsersProjectsReadQuery(id);
+    const { isSuccess: projectSuccess, result: projectResult, message: projectAccessorMessage } = await readEntry(query);
+    if(!projectSuccess) return res.status(400).json({ message: projectAccessorMessage });
+
+    res.status(200).json(projectResult);
+}
+
+const postProjectsController = async (req, res) => {
+    const projectQuery = buildProjectsCreateQuery(req.body);
+    const { isSuccess: projectSuccess, result: projectResult, message: projectAccessorMessage } = await createEntry(projectQuery, buildProjectsReadQuery);
+    if(!projectSuccess) return res.status(404).json({ message: projectAccessorMessage });
+
+    const member = {
+        "userID": req.params.id,
+        "projectID": projectResult[0].projectID
+    }
+    const memberQuery = buildMembersCreateQuery(member);
+    const { isSuccess: memberSuccess, result: memberResult, message: memberAccessorMessage } = await createEntry(memberQuery, buildMembersReadQuery);
+    if(!memberSuccess) return res.status(404).json({ message: memberAccessorMessage });
+
+    res.status(201).json(projectResult);
+}
+
+const putProjectsController = async (req, res) => {
+    const id = req.params.id;
+    const record = req.body;
+
+    const query = buildProjectsUpdateQuery(record, id);
+    const { isSuccess, result, message: accessorMessage } = await updateEntry(query);
+    if(!isSuccess) return res.status(400).json({ message: accessorMessage });
+
+    res.status(200).json(result);
+}
+
+const deleteProjectsController = async (req, res) => {
+    const id = req.params.id;
+    const record = req.body;
+
+    const membersQuery = buildMembersProjectsDeleteQuery(id);
+    const { isSuccess: memberSuccess, result: memberResult, message: memberAccessorMessage } = await deleteEntry(membersQuery);
+    if(!memberSuccess) return res.status(400).json({ message: memberAccessorMessage });
+
+    const projectQuery = buildProjectsDeleteQuery(id);
+    const { isSuccess, result, message: accessorMessage } = await deleteEntry(projectQuery);
+    if(!isSuccess) return res.status(400).json({ message: accessorMessage });
+
+    res.status(200).json({ message: accessorMessage });
+}
+
+
+// Builders ---------------------------------------
+const buildSetFields = (fields) => fields.reduce((setSql, field, index) =>
+    setSql + `${field}=:${field}` + ((index === fields.length - 1) ? '' : ', '), `SET ` );
+
+// Create --------
+const buildProjectsCreateQuery = (record) => {
+    let table = `projects`;
+    let mutableFields = ['projectName', 'projectDescription', 'projectImage', 'projectDeadline'];
+    const sql = `INSERT INTO ${table} ` + buildSetFields(mutableFields);
+    return { sql, data: record }
+}
+const buildMembersCreateQuery = (record) => {
+    let table = `members`;
+    let mutableFields = ['userID', 'projectID'];
+    const sql = `INSERT INTO ${table} ` + buildSetFields(mutableFields);
+    return { sql, data: record }
+}
+
+// Read ----------
+const buildProjectsReadQuery = (id) => {
+    let table = `projects`;
+    let fields = ["projectID, projectName, projectDescription, projectImage, projectDeadline"];
+    let sql = `SELECT ${fields} FROM ${table} WHERE projectID = :ID`;
+
+    return {sql, data: { ID: id }};
+}
+const buildUsersProjectsReadQuery = (id) => {
+    let table = `members INNER JOIN projects ON members.projectID = projects.projectID`;
+    let fields = ["projects.projectID, projects.projectName, projects.projectDescription, projects.projectImage, projects.projectDeadline"];
+    let sql = `SELECT ${fields} FROM ${table} WHERE members.userID = :ID`;
+
+    return {sql, data: { ID: id }};
+}
+const buildMembersReadQuery = (id) => {
+    let table = `members`;
+    let fields = ["memberID, userID, projectID"];
+    let sql = `SELECT ${fields} FROM ${table} WHERE memberID = :ID`;
+
+    return {sql, data: { ID: id }};
+}
+
+// Update --------
+const buildProjectsUpdateQuery = (record, id) => {
+    let table = `projects`;
+    let mutableFields = ['projectName', 'projectDescription', 'projectImage', 'projectDeadline'];
+    const sql = `UPDATE ${table} ` + buildSetFields(mutableFields) + ` WHERE projectID=:projectID`;
+    return { sql, data: { ...record, projectID: id} }
+}
+
+// Delete --------
+const buildProjectsDeleteQuery = (id) => {
+    let table = `projects`;
+    const sql = `DELETE FROM ${table} WHERE projectID=:projectID`;
+    return { sql, data: { projectID: id} }
+}
+const buildMembersProjectsDeleteQuery = (id) => {
+    let table = `members`;
+    const sql = `DELETE FROM ${table} WHERE members.projectID=:projectID`;
+    return { sql, data: { projectID: id} }
 }
 
 // Endpoints --------------------------------------
